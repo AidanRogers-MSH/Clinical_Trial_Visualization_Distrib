@@ -1,0 +1,25 @@
+{
+  "users": {
+    "example_user": {
+      "password": "example_password",
+      "role": "researcher",
+      "accessible_studies": [
+        "CORE Database",
+        "Antiviral Clinical Trial"
+      ]
+    },
+    "admin_user": {
+      "password": "admin_password",
+      "role": "admin",
+      "accessible_studies": [
+        "CORE Database",
+        "Antiviral Clinical Trial",
+        "Lumbrokinase Clinical Trial",
+        "Humanity Neurotech",
+        "Sana Lyme", 
+        "Sirolimus (Rapamycin) Clinical Trial",
+        "PACS Cortisol Study"
+      ]
+    }
+  }
+}

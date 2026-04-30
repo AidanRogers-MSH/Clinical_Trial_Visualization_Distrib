@@ -1,0 +1,59 @@
+{
+  "users": {
+    "aidan": {
+      "password": "a",
+      "role": "admin",
+      "accessible_studies": [
+        "CORE Database",
+        "Antiviral Clinical Trial",
+        "Lumbrokinase Clinical Trial",
+        "Humanity Neurotech",
+        "Sana Lyme",
+        "Sirolimus (Rapamycin) Clinical Trial",
+        "PACS Cortisol Study"
+      ]
+    },
+    "david": {
+      "password": "CORE",
+      "role": "researcher",
+      "accessible_studies": [
+        "CORE Database",
+        "Antiviral Clinical Trial",
+        "Lumbrokinase Clinical Trial",
+        "Humanity Neurotech",
+        "Sana Lyme",
+        "Sirolimus (Rapamycin) Clinical Trial",
+        "PACS Cortisol Study"
+      ]
+    },
+    "amy": {
+      "password": "ontheproal",
+      "role": "researcher",
+      "accessible_studies": [
+        "Antiviral Clinical Trial",
+        "Lumbrokinase Clinical Trial",
+        "Sana Lyme",
+        "Sirolimus (Rapamycin) Clinical Trial"
+      ]
+    },
+    "mackenzie": {
+      "password": "aidanisawesome",
+      "role": "researcher",
+      "accessible_studies": [
+        "CORE Database",
+        "Antiviral Clinical Trial",
+        "Lumbrokinase Clinical Trial",
+        "Humanity Neurotech",
+        "Sana Lyme",
+        "Sirolimus (Rapamycin) Clinical Trial",
+        "PACS Cortisol Study"
+      ]
+    },
+    "jenna": {
+      "password": "ARC",
+      "role": "clinician",
+      "accessible_studies": [
+      ]
+    }
+  }
+}
