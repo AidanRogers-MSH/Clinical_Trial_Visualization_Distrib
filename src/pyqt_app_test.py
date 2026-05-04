@@ -40,7 +40,8 @@ def get_config_path(filename):
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QTabWidget, QLabel, QLineEdit, 
                             QPushButton, QCheckBox, QScrollArea, QMessageBox,
-                            QFrame, QSizePolicy, QSlider, QSpinBox, QSplitter)
+                            QFrame, QSizePolicy, QSlider, QSpinBox, QSplitter,
+                            QDialog)
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 from PySide6.QtGui import QFont, QCursor
 import numpy as np
@@ -338,7 +339,8 @@ class DataFetcher(QThread):
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QTabWidget, QLabel, QLineEdit, 
                             QPushButton, QCheckBox, QScrollArea, QMessageBox,
-                            QFrame, QSizePolicy, QSlider, QSpinBox, QSplitter)
+                            QFrame, QSizePolicy, QSlider, QSpinBox, QSplitter,
+                            QDialog)
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 from PySide6.QtGui import QFont, QCursor
 
@@ -1259,6 +1261,217 @@ class ChartWidget(QWidget):
         # Adjust layout to prevent label cutoff
         _get_plt().setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
         
+class StudyValidationThread(QThread):
+    """Background thread that validates a REDCap API key by querying for record IDs."""
+    validation_complete = Signal(bool, str, str, str)  # success, study_name, api_key, error_msg
+
+    def __init__(self, study_name, api_key):
+        super().__init__()
+        self.study_name = study_name
+        self.api_key = api_key
+
+    def run(self):
+        try:
+            payload = {
+                'token': self.api_key,
+                'content': 'record',
+                'action': 'export',
+                'format': 'json',
+                'type': 'flat',
+                'fields[0]': 'record_id',
+                'rawOrLabel': 'raw',
+                'rawOrLabelHeaders': 'raw',
+                'exportCheckboxLabel': 'false',
+                'exportSurveyFields': 'false',
+                'exportDataAccessGroups': 'false',
+                'returnFormat': 'json'
+            }
+            response = requests.post(
+                'https://redcap.mountsinai.org/redcap/api/', data=payload
+            )
+            if response.status_code == 200:
+                result = response.json()
+                if isinstance(result, dict) and 'error' in result:
+                    self.validation_complete.emit(
+                        False, self.study_name, self.api_key,
+                        f"REDCap error: {result['error']}"
+                    )
+                elif isinstance(result, list):
+                    self.validation_complete.emit(
+                        True, self.study_name, self.api_key, ""
+                    )
+                else:
+                    self.validation_complete.emit(
+                        False, self.study_name, self.api_key,
+                        "Unexpected response format from REDCap."
+                    )
+            else:
+                self.validation_complete.emit(
+                    False, self.study_name, self.api_key,
+                    f"HTTP {response.status_code}: Unable to connect to database."
+                )
+        except Exception as e:
+            self.validation_complete.emit(False, self.study_name, self.api_key, str(e))
+
+
+class AddStudyDialog(QDialog):
+    """Pop-up dialog for adding a new study API key / database to the application."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add New API Key / Database")
+        self.setFixedSize(460, 270)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowCloseButtonHint)
+
+        self.validated_name = None
+        self.validated_key = None
+        self._validation_thread = None
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(24, 20, 24, 20)
+
+        bold_font = QFont()
+        bold_font.setBold(True)
+        bold_font.setPointSize(10)
+
+        # Study name row
+        name_label = QLabel("Name of study :")
+        name_label.setFont(bold_font)
+        layout.addWidget(name_label)
+
+        self.study_name_input = QLineEdit()
+        self.study_name_input.setPlaceholderText("Enter the name of the study...")
+        layout.addWidget(self.study_name_input)
+
+        # API key row
+        api_label = QLabel("API key for study:")
+        api_label.setFont(bold_font)
+        layout.addWidget(api_label)
+
+        self.api_key_input = QLineEdit()
+        self.api_key_input.setPlaceholderText("Enter the REDCap API key...")
+        layout.addWidget(self.api_key_input)
+
+        # Status / error label (hidden until needed)
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        self.status_label.setVisible(False)
+        layout.addWidget(self.status_label)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(self.cancel_btn)
+
+        self.enter_btn = QPushButton("Enter")
+        self.enter_btn.setDefault(True)
+        self.enter_btn.clicked.connect(self._on_enter_clicked)
+        btn_layout.addWidget(self.enter_btn)
+
+        layout.addLayout(btn_layout)
+
+    def _on_enter_clicked(self):
+        name = self.study_name_input.text().strip()
+        api_key = self.api_key_input.text().strip()
+
+        if not name:
+            self._show_status("Please enter a study name.", error=True)
+            return
+        if not api_key:
+            self._show_status("Please enter an API key.", error=True)
+            return
+
+        self.enter_btn.setEnabled(False)
+        self.cancel_btn.setEnabled(False)
+        self._show_status("Validating API key with REDCap...", error=False)
+
+        self._validation_thread = StudyValidationThread(name, api_key)
+        self._validation_thread.validation_complete.connect(self._on_validation_done)
+        self._validation_thread.start()
+
+    def _on_validation_done(self, success, study_name, api_key, error_msg):
+        self.enter_btn.setEnabled(True)
+        self.cancel_btn.setEnabled(True)
+
+        if success:
+            self.validated_name = study_name
+            self.validated_key = api_key
+            self.accept()
+        else:
+            self._show_status(error_msg, error=True)
+
+    def _show_status(self, message, error=True):
+        if error:
+            self.status_label.setStyleSheet("color: #c62828; font-weight: bold;")
+        else:
+            self.status_label.setStyleSheet("color: #555555;")
+        self.status_label.setText(message)
+        self.status_label.setVisible(True)
+
+
+class RemoveStudiesDialog(QDialog):
+    """Pop-up dialog for removing studies from api_keys.json and the current user's permissions."""
+
+    def __init__(self, studies, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Remove Studies")
+        self.setMinimumWidth(400)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowCloseButtonHint)
+
+        self.studies_to_remove = []  # filled on accept
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(24, 20, 24, 20)
+
+        bold_font = QFont()
+        bold_font.setBold(True)
+        bold_font.setPointSize(10)
+
+        header = QLabel("Select studies to remove:")
+        header.setFont(bold_font)
+        layout.addWidget(header)
+
+        # Scrollable list of checkboxes
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setMaximumHeight(300)
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(4, 4, 4, 4)
+
+        self._checkboxes = {}
+        for study_name in studies:
+            cb = QCheckBox(study_name)
+            self._checkboxes[study_name] = cb
+            container_layout.addWidget(cb)
+
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        delete_btn = QPushButton("Delete Studies")
+        delete_btn.clicked.connect(self._on_delete_clicked)
+        btn_layout.addWidget(delete_btn)
+
+        layout.addLayout(btn_layout)
+
+    def _on_delete_clicked(self):
+        self.studies_to_remove = [
+            name for name, cb in self._checkboxes.items() if cb.isChecked()
+        ]
+        self.accept()
+
+
 class WheelScrollArea(QScrollArea):
     """QScrollArea that always scrolls vertically on mouse wheel,
     even when child widgets (e.g. matplotlib canvases) are under the cursor."""
@@ -1429,14 +1642,27 @@ class ClinicalTrialApp(QMainWindow):
     def setup_selection_tab(self):
         self.selection_widget = QWidget()
         self.selection_layout = QVBoxLayout(self.selection_widget)
-        
-        # Title
+
+        # Header row: title + logout button
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+
         title = QLabel("Select Studies to Visualize")
         title_font = QFont()
         title_font.setPointSize(14)
         title_font.setBold(True)
         title.setFont(title_font)
-        self.selection_layout.addWidget(title)
+        header_layout.addWidget(title)
+
+        header_layout.addStretch()
+
+        sel_logout_btn = QPushButton("Logout")
+        sel_logout_btn.clicked.connect(self.logout)
+        sel_logout_btn.setFixedWidth(80)
+        header_layout.addWidget(sel_logout_btn)
+
+        self.selection_layout.addWidget(header_widget)
         
         # User info label
         self.user_info_label = QLabel("Please log in to view available studies.")
@@ -1456,15 +1682,27 @@ class ClinicalTrialApp(QMainWindow):
         self.generate_btn.clicked.connect(self.generate_visualizations)
         self.generate_btn.setEnabled(False)  # Disabled until studies are loaded
         self.selection_layout.addWidget(self.generate_btn)
-        
+
+        # "Add new study" button — lives directly below Generate Visualizations
+        self.add_study_btn = QPushButton("Would you like to add a new API key/Database?")
+        self.add_study_btn.clicked.connect(self.open_add_study_dialog)
+        self.selection_layout.addWidget(self.add_study_btn)
+
+        # "Remove studies" button — lives directly below Add button
+        self.remove_study_btn = QPushButton("Do you want to remove any of these studies from the list?")
+        self.remove_study_btn.clicked.connect(self.open_remove_studies_dialog)
+        self.selection_layout.addWidget(self.remove_study_btn)
+
         self.selection_layout.addStretch()
         self.tabs.addTab(self.selection_widget, "Select Studies")
     
     def refresh_studies_list(self):
         """Refresh the studies list based on current user permissions"""
-        # Clear existing checkboxes
-        for checkbox in self.study_checkboxes.values():
-            checkbox.deleteLater()
+        # Clear all widgets from the studies container (checkboxes + any status labels)
+        while self.studies_layout.count():
+            item = self.studies_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
         self.study_checkboxes.clear()
         
         # Update user info
@@ -1700,6 +1938,88 @@ class ClinicalTrialApp(QMainWindow):
             
             QMessageBox.information(self, "Logged Out", "You have been logged out successfully.")
 
+    def open_add_study_dialog(self):
+        """Open the dialog for adding a new study / API key."""
+        dialog = AddStudyDialog(self)
+        if dialog.exec() == QDialog.Accepted:
+            self.save_new_study(dialog.validated_name, dialog.validated_key)
+
+    def open_remove_studies_dialog(self):
+        """Open the dialog for removing studies."""
+        # Build the list the current user can see
+        accessible = self.user_permissions.get('accessible_studies', []) if self.user_permissions else []
+        if not accessible:
+            QMessageBox.information(self, "No Studies", "There are no studies to remove.")
+            return
+        dialog = RemoveStudiesDialog(accessible, self)
+        # Always refresh the list when the dialog closes (accept or reject)
+        dialog.finished.connect(lambda _: self.refresh_studies_list())
+        if dialog.exec() == QDialog.Accepted and dialog.studies_to_remove:
+            self.remove_studies(dialog.studies_to_remove)
+
+    def remove_studies(self, studies_to_remove):
+        """Remove selected studies from api_keys.json and the current user's permissions."""
+        try:
+            for name in studies_to_remove:
+                # Remove from in-memory api_keys dict
+                self.api_keys.pop(name, None)
+                # Remove from current user's accessible_studies
+                accessible = self.user_permissions.get('accessible_studies', [])
+                if name in accessible:
+                    accessible.remove(name)
+
+            # Persist api_keys.json
+            api_keys_path = get_config_path('api_keys.json')
+            with open(api_keys_path, 'w') as f:
+                json.dump(self.api_keys, f, indent=2)
+
+            # Persist user_permissions.json
+            permissions_path = get_config_path('user_permissions.json')
+            with open(permissions_path, 'w') as f:
+                json.dump(self.user_data, f, indent=2)
+
+            self.refresh_studies_list()
+
+            removed_list = ", ".join(f"'{n}'" for n in studies_to_remove)
+            QMessageBox.information(
+                self, "Studies Removed",
+                f"The following studies have been removed:\n{removed_list}"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Remove Error", f"Failed to remove studies: {str(e)}")
+
+    def save_new_study(self, study_name, api_key):
+        """Persist a newly validated study to api_keys.json and user_permissions.json,
+        then refresh the selection list and notify the user."""
+        try:
+            # --- api_keys.json ---
+            self.api_keys[study_name] = api_key
+            api_keys_path = get_config_path('api_keys.json')
+            with open(api_keys_path, 'w') as f:
+                json.dump(self.api_keys, f, indent=2)
+
+            # --- user_permissions.json ---
+            # self.user_permissions is a reference to the current user's dict inside
+            # self.user_data, so appending here updates both simultaneously.
+            accessible = self.user_permissions.setdefault('accessible_studies', [])
+            if study_name not in accessible:
+                accessible.append(study_name)
+            permissions_path = get_config_path('user_permissions.json')
+            with open(permissions_path, 'w') as f:
+                json.dump(self.user_data, f, indent=2)
+
+            # Refresh the studies list so the new study appears immediately
+            self.refresh_studies_list()
+
+            QMessageBox.information(
+                self, "Study Added",
+                f"'{study_name}' has been successfully added!\n"
+                "The study is now visible in your studies list."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Failed to save study: {str(e)}")
+
+
 def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')  # Modern look
@@ -1707,7 +2027,7 @@ def main():
     window = ClinicalTrialApp()
     window.show()
     
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 if __name__ == "__main__":
     main()
