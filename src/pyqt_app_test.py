@@ -25,17 +25,29 @@ def _get_plt():
 
 
 def get_config_path(filename):
-    """Return the path to an editable config file that lives next to the
-    executable in both development and PyInstaller-packaged builds.
+    """Return the path to an editable config file.
 
-    - Development  : same directory as this source file (src/)
-    - Packaged     : directory containing the frozen executable, i.e.
-                     dist/ClinicalTrialVisualization/ on Windows/Linux or
-                     ClinicalTrialVisualization.app/Contents/MacOS/ on macOS.
+    - Development        : same directory as this source file (src/)
+    - Packaged (folder)  : next to the executable, e.g.
+                           dist/ClinicalTrialVisualization/<filename>
+    - Packaged (.app)    : next to the .app bundle itself, e.g.
+                           dist/<filename>  (visible in Finder)
+                           This lets users edit the files without
+                           diving into Contents/MacOS inside the bundle.
     """
     if getattr(sys, 'frozen', False):
-        # sys.executable is the real executable path in a PyInstaller bundle
-        return os.path.join(os.path.dirname(sys.executable), filename)
+        exe_dir = os.path.dirname(sys.executable)
+        # Detect macOS .app bundle: the executable lives inside
+        # <something>.app/Contents/MacOS/ — navigate up to the
+        # directory that *contains* the .app so configs are in the
+        # same Finder-visible folder as the bundle.
+        if sys.platform == 'darwin' and os.path.join('Contents', 'MacOS') in exe_dir:
+            # exe_dir: .../Foo.app/Contents/MacOS
+            # up once → Contents, up twice → Foo.app, up three times → parent
+            app_parent = os.path.dirname(os.path.dirname(os.path.dirname(exe_dir)))
+            if app_parent:
+                return os.path.join(app_parent, filename)
+        return os.path.join(exe_dir, filename)
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QTabWidget, QLabel, QLineEdit, 
