@@ -27,26 +27,30 @@ def _get_plt():
 def get_config_path(filename):
     """Return the path to an editable config file.
 
-    - Development        : same directory as this source file (src/)
-    - Packaged (folder)  : next to the executable, e.g.
-                           dist/ClinicalTrialVisualization/<filename>
-    - Packaged (.app)    : next to the .app bundle itself, e.g.
-                           dist/<filename>  (visible in Finder)
-                           This lets users edit the files without
-                           diving into Contents/MacOS inside the bundle.
+    Platform behaviour (packaged builds):
+    - Windows / Linux  : next to the executable
+                         e.g. dist/ClinicalTrialVisualization/<filename>
+    - macOS .app       : next to the .app bundle (visible in Finder)
+                         e.g. dist/<filename>
+                         exe lives at .app/Contents/MacOS/ → go up 3 levels
+    - macOS one-dir    : same parent folder as the .app so both distributions
+                         share one set of config files
+                         exe lives at dist/ClinicalTrialVisualization/ → go up 1 level
+    - Development      : same directory as this source file (src/)
     """
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
-        # Detect macOS .app bundle: the executable lives inside
-        # <something>.app/Contents/MacOS/ — navigate up to the
-        # directory that *contains* the .app so configs are in the
-        # same Finder-visible folder as the bundle.
-        if sys.platform == 'darwin' and os.path.join('Contents', 'MacOS') in exe_dir:
-            # exe_dir: .../Foo.app/Contents/MacOS
-            # up once → Contents, up twice → Foo.app, up three times → parent
-            app_parent = os.path.dirname(os.path.dirname(os.path.dirname(exe_dir)))
-            if app_parent:
-                return os.path.join(app_parent, filename)
+        if sys.platform == 'darwin':
+            if os.path.join('Contents', 'MacOS') in exe_dir:
+                # Inside .app: .../dist/Foo.app/Contents/MacOS → up 3 → dist/
+                config_dir = os.path.dirname(
+                    os.path.dirname(os.path.dirname(exe_dir))
+                )
+            else:
+                # One-dir bundle: .../dist/ClinicalTrialVisualization → up 1 → dist/
+                config_dir = os.path.dirname(exe_dir)
+            return os.path.join(config_dir, filename)
+        # Windows / Linux: JSONs live next to the executable
         return os.path.join(exe_dir, filename)
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
