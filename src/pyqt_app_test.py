@@ -1557,13 +1557,15 @@ class ClinicalTrialApp(QMainWindow):
             with open(api_keys_path, 'r') as f:
                 return json.load(f)
         except FileNotFoundError:
-            QMessageBox.critical(None, "Error", 
-                "API keys file (api_keys.json) not found!\n"
-                "Please create api_keys.json with your API keys.\n"
-                "See api_keys_template.json for format.")
+            api_keys_path = get_config_path('api_keys.json')
+            QMessageBox.critical(None, "Error",
+                f"api_keys.json not found!\n\n"
+                f"Looked at:\n{api_keys_path}\n\n"
+                f"sys.executable:\n{sys.executable}\n\n"
+                f"Place api_keys.json next to the executable.")
             return {}
         except json.JSONDecodeError:
-            QMessageBox.critical(None, "Error", 
+            QMessageBox.critical(None, "Error",
                 "Invalid JSON format in api_keys.json!\n"
                 "Please check the file format.")
             return {}
@@ -1579,12 +1581,15 @@ class ClinicalTrialApp(QMainWindow):
             with open(permissions_path, 'r') as f:
                 return json.load(f)
         except FileNotFoundError:
-            QMessageBox.critical(None, "Error", 
-                "User permissions file (user_permissions.json) not found!\n"
-                "Please create user_permissions.json with user access control.")
+            permissions_path = get_config_path('user_permissions.json')
+            QMessageBox.critical(None, "Error",
+                f"user_permissions.json not found!\n\n"
+                f"Looked at:\n{permissions_path}\n\n"
+                f"sys.executable:\n{sys.executable}\n\n"
+                f"Place user_permissions.json next to the executable.")
             return {"users": {}}
         except json.JSONDecodeError:
-            QMessageBox.critical(None, "Error", 
+            QMessageBox.critical(None, "Error",
                 "Invalid JSON format in user_permissions.json!\n"
                 "Please check the file format.")
             return {"users": {}}
