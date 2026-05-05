@@ -1,7 +1,7 @@
 {
   "users": {
     "aidan": {
-      "password": "a",
+      "password": "aidan",
       "role": "admin",
       "accessible_studies": [
         "CORE Database",
@@ -52,6 +52,13 @@
     "jenna": {
       "password": "ARC",
       "role": "clinician",
+      "accessible_studies": [
+        "BioLiberty"
+      ]
+    },
+    "CRC": {
+      "password": "CRC",
+      "role": "researcher",
       "accessible_studies": [
       ]
     }
