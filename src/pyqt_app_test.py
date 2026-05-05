@@ -27,47 +27,18 @@ def _get_plt():
 def get_config_path(filename):
     """Return the path to an editable config file.
 
-    Searches candidate locations in priority order and returns the first path
-    where the file already exists.  If not found anywhere, returns the canonical
-    (preferred) write location so callers can create it there.
-
-    Candidate search order (packaged builds):
-    - Windows / Linux one-dir : next to the exe
-                                e.g. dist/ClinicalTrialVisualization/<file>
-    - macOS one-dir           : next to the exe, then parent of that folder
-    - macOS .app bundle       : sibling one-dir folder (same place as the unix
-                                binary), then next to the .app, then exe dir.
-                                ONE copy of the JSONs in the one-dir folder
-                                is found by both the unix binary and the .app.
-    - Development             : same directory as this source file (src/)
+    - macOS .app  : folder containing the .app  (JSONs travel with the .app in the zip)
+    - Windows/Linux one-dir : next to the executable
+    - Development : same directory as this source file (src/)
     """
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
-
         if sys.platform == 'darwin' and 'Contents' + os.sep + 'MacOS' in exe_dir:
-            # Running inside a .app bundle.
-            # exe_dir: .../dist/ClinicalTrialVisualization.app/Contents/MacOS
-            contents_dir = os.path.dirname(exe_dir)          # .../Foo.app/Contents
-            app_dir      = os.path.dirname(contents_dir)     # .../Foo.app
-            app_parent   = os.path.dirname(app_dir)          # .../dist/
-            # The one-dir folder shares the same base name as the .app
-            folder_name  = os.path.splitext(os.path.basename(app_dir))[0]
-            sibling_dir  = os.path.join(app_parent, folder_name)
-            candidates   = [sibling_dir, app_parent, exe_dir]
-            canonical    = sibling_dir
-        else:
-            # Windows, Linux, or macOS one-dir bundle
-            parent_dir = os.path.dirname(exe_dir)
-            candidates = [exe_dir, parent_dir]
-            canonical  = exe_dir
-
-        for candidate in candidates:
-            path = os.path.join(candidate, filename)
-            if os.path.exists(path):
-                return path
-        # File not found anywhere — return canonical location for creation
-        return os.path.join(canonical, filename)
-
+            # exe_dir = .../SomeFolder/ClinicalTrialVisualization.app/Contents/MacOS
+            # up 3 levels → SomeFolder/ which also contains the JSONs
+            app_parent = os.path.dirname(os.path.dirname(os.path.dirname(exe_dir)))
+            return os.path.join(app_parent, filename)
+        return os.path.join(exe_dir, filename)
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QTabWidget, QLabel, QLineEdit, 
@@ -1560,9 +1531,7 @@ class ClinicalTrialApp(QMainWindow):
             api_keys_path = get_config_path('api_keys.json')
             QMessageBox.critical(None, "Error",
                 f"api_keys.json not found!\n\n"
-                f"Looked at:\n{api_keys_path}\n\n"
-                f"sys.executable:\n{sys.executable}\n\n"
-                f"Place api_keys.json next to the executable.")
+                f"Please place api_keys.json here:\n{api_keys_path}")
             return {}
         except json.JSONDecodeError:
             QMessageBox.critical(None, "Error",
@@ -1584,9 +1553,7 @@ class ClinicalTrialApp(QMainWindow):
             permissions_path = get_config_path('user_permissions.json')
             QMessageBox.critical(None, "Error",
                 f"user_permissions.json not found!\n\n"
-                f"Looked at:\n{permissions_path}\n\n"
-                f"sys.executable:\n{sys.executable}\n\n"
-                f"Place user_permissions.json next to the executable.")
+                f"Please place user_permissions.json here:\n{permissions_path}")
             return {"users": {}}
         except json.JSONDecodeError:
             QMessageBox.critical(None, "Error",
