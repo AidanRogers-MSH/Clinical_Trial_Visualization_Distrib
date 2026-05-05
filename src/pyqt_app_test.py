@@ -27,18 +27,22 @@ def _get_plt():
 def get_config_path(filename):
     """Return the path to an editable config file.
 
-    - macOS .app  : folder containing the .app  (JSONs travel with the .app in the zip)
-    - Windows/Linux one-dir : next to the executable
-    - Development : same directory as this source file (src/)
+    - macOS (packaged) : ~/Library/Application Support/ClinicalTrialVisualization/
+                         This is the standard macOS location and is immune to
+                         App Translocation (macOS security sandbox for downloaded apps).
+    - Windows/Linux    : next to the executable
+    - Development      : same directory as this source file (src/)
     """
     if getattr(sys, 'frozen', False):
-        exe_dir = os.path.dirname(sys.executable)
-        if sys.platform == 'darwin' and 'Contents' + os.sep + 'MacOS' in exe_dir:
-            # exe_dir = .../SomeFolder/ClinicalTrialVisualization.app/Contents/MacOS
-            # up 3 levels → SomeFolder/ which also contains the JSONs
-            app_parent = os.path.dirname(os.path.dirname(os.path.dirname(exe_dir)))
-            return os.path.join(app_parent, filename)
-        return os.path.join(exe_dir, filename)
+        if sys.platform == 'darwin':
+            config_dir = os.path.join(
+                os.path.expanduser('~'), 'Library', 'Application Support',
+                'ClinicalTrialVisualization'
+            )
+            os.makedirs(config_dir, exist_ok=True)
+            return os.path.join(config_dir, filename)
+        # Windows / Linux: next to the executable
+        return os.path.join(os.path.dirname(sys.executable), filename)
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QTabWidget, QLabel, QLineEdit, 
@@ -1529,9 +1533,17 @@ class ClinicalTrialApp(QMainWindow):
                 return json.load(f)
         except FileNotFoundError:
             api_keys_path = get_config_path('api_keys.json')
-            QMessageBox.critical(None, "Error",
-                f"api_keys.json not found!\n\n"
-                f"Please place api_keys.json here:\n{api_keys_path}")
+            config_dir = os.path.dirname(api_keys_path)
+            os.makedirs(config_dir, exist_ok=True)
+            if sys.platform == 'darwin':
+                import subprocess
+                subprocess.run(['open', config_dir])
+            QMessageBox.critical(None, "Config files missing",
+                f"api_keys.json was not found.\n\n"
+                f"A Finder window has opened showing the folder where you "
+                f"need to place it:\n\n{config_dir}\n\n"
+                f"Drag api_keys.json and user_permissions.json into that "
+                f"folder, then relaunch the app.")
             return {}
         except json.JSONDecodeError:
             QMessageBox.critical(None, "Error",
@@ -1551,9 +1563,17 @@ class ClinicalTrialApp(QMainWindow):
                 return json.load(f)
         except FileNotFoundError:
             permissions_path = get_config_path('user_permissions.json')
-            QMessageBox.critical(None, "Error",
-                f"user_permissions.json not found!\n\n"
-                f"Please place user_permissions.json here:\n{permissions_path}")
+            config_dir = os.path.dirname(permissions_path)
+            os.makedirs(config_dir, exist_ok=True)
+            if sys.platform == 'darwin':
+                import subprocess
+                subprocess.run(['open', config_dir])
+            QMessageBox.critical(None, "Config files missing",
+                f"user_permissions.json was not found.\n\n"
+                f"A Finder window has opened showing the folder where you "
+                f"need to place it:\n\n{config_dir}\n\n"
+                f"Drag api_keys.json and user_permissions.json into that "
+                f"folder, then relaunch the app.")
             return {"users": {}}
         except json.JSONDecodeError:
             QMessageBox.critical(None, "Error",
