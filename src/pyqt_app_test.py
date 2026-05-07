@@ -243,10 +243,21 @@ class DataFetcher(QThread):
                     }
                 }
             },
-            "default": {
+            "Humanity Neurotech": {
                 "chart_type": "dual",
                 "fields": ["research_enrollment_status___1", "research_enrollment_status___2", "enrolled_patient_status"],
                 "chart_titles": ["Research Enrollment Status", "Enrolled Patient Status"]
+            },
+            "PACS Cortisol Study": {
+                "chart_type": "dual",
+                "fields": ["research_enrollment_status___1", "research_enrollment_status___2", "enrolled_patient_status"],
+                "chart_titles": ["Research Enrollment Status", "Enrolled Patient Status"]
+            },
+            "default": {
+                "chart_type": "sankey_flow",
+                "fields": ["consent_status", "screen_status", "screen_pending_status",
+                          "screen_pass_date", "screen_pass_status", "on_study_status"],
+                "chart_title": "Patient Flow Analysis"
             }
         }
         return configs.get(study_name, configs["default"])
@@ -571,6 +582,36 @@ class ChartWidget(QWidget):
             }
         }
 
+        # Load any additional studies saved via the Add Study dialog
+        self._load_study_config()
+
+    def _load_study_config(self):
+        """Merge study_config.json entries into recruitment_rates for dynamically added studies."""
+        try:
+            config_path = get_config_path('study_config.json')
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    saved = json.load(f)
+                for study_name, info in saved.items():
+                    if study_name not in self.recruitment_rates:
+                        start_raw = info.get('start_date')
+                        try:
+                            start = date.fromisoformat(start_raw) if start_raw else float('nan')
+                        except (ValueError, TypeError):
+                            start = float('nan')
+                        target_raw = info.get('target_subjects')
+                        try:
+                            target = int(target_raw) if target_raw not in (None, '') else float('nan')
+                        except (ValueError, TypeError):
+                            target = float('nan')
+                        self.recruitment_rates[study_name] = {
+                            "target_subjects": target,
+                            "start_date": start,
+                            "current_subjects": float('nan')
+                        }
+        except Exception:
+            pass  # If file is missing or malformed, silently continue
+
     def clear_charts(self):
         """Clear all existing charts and reset data"""
         while self.layout.count():
@@ -713,10 +754,21 @@ class ChartWidget(QWidget):
                           "screen_pass_date", "screen_pass_status", "on_study_status"],
                 "chart_title": "Patient Flow Analysis"
             },
-            "default": {
+            "Humanity Neurotech": {
                 "chart_type": "dual",
                 "fields": ["research_enrollment_status___1", "research_enrollment_status___2", "enrolled_patient_status"],
                 "chart_titles": ["Research Enrollment Status", "Enrolled Patient Status"]
+            },
+            "PACS Cortisol Study": {
+                "chart_type": "dual",
+                "fields": ["research_enrollment_status___1", "research_enrollment_status___2", "enrolled_patient_status"],
+                "chart_titles": ["Research Enrollment Status", "Enrolled Patient Status"]
+            },
+            "default": {
+                "chart_type": "sankey_flow",
+                "fields": ["consent_status", "screen_status", "screen_pending_status",
+                          "screen_pass_date", "screen_pass_status", "on_study_status"],
+                "chart_title": "Patient Flow Analysis"
             }
         }
         return configs.get(study_name, configs["default"])
@@ -1327,11 +1379,13 @@ class AddStudyDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Add New API Key / Database")
-        self.setFixedSize(460, 270)
+        self.setFixedSize(460, 400)
         self.setWindowFlags(self.windowFlags() | Qt.WindowCloseButtonHint)
 
         self.validated_name = None
         self.validated_key = None
+        self.validated_target = None
+        self.validated_start_date = None
         self._validation_thread = None
 
         layout = QVBoxLayout(self)
@@ -1343,7 +1397,7 @@ class AddStudyDialog(QDialog):
         bold_font.setPointSize(10)
 
         # Study name row
-        name_label = QLabel("Name of study :")
+        name_label = QLabel("Name of study:")
         name_label.setFont(bold_font)
         layout.addWidget(name_label)
 
@@ -1359,6 +1413,24 @@ class AddStudyDialog(QDialog):
         self.api_key_input = QLineEdit()
         self.api_key_input.setPlaceholderText("Enter the REDCap API key...")
         layout.addWidget(self.api_key_input)
+
+        # Target enrollment row
+        target_label = QLabel("Target enrollment (optional):")
+        target_label.setFont(bold_font)
+        layout.addWidget(target_label)
+
+        self.target_input = QLineEdit()
+        self.target_input.setPlaceholderText("What is the target enrollment for this study?")
+        layout.addWidget(self.target_input)
+
+        # Study start date row
+        start_date_label = QLabel("Study start date (optional, YYYY-MM-DD):")
+        start_date_label.setFont(bold_font)
+        layout.addWidget(start_date_label)
+
+        self.start_date_input = QLineEdit()
+        self.start_date_input.setPlaceholderText("e.g. 2025-01-15")
+        layout.addWidget(self.start_date_input)
 
         # Status / error label (hidden until needed)
         self.status_label = QLabel("")
@@ -1383,6 +1455,8 @@ class AddStudyDialog(QDialog):
     def _on_enter_clicked(self):
         name = self.study_name_input.text().strip()
         api_key = self.api_key_input.text().strip()
+        target_text = self.target_input.text().strip()
+        start_date_text = self.start_date_input.text().strip()
 
         if not name:
             self._show_status("Please enter a study name.", error=True)
@@ -1391,21 +1465,41 @@ class AddStudyDialog(QDialog):
             self._show_status("Please enter an API key.", error=True)
             return
 
+        # Validate target enrollment if provided
+        if target_text:
+            try:
+                int(target_text)
+            except ValueError:
+                self._show_status("Target enrollment must be a whole number.", error=True)
+                return
+
+        # Validate start date if provided
+        if start_date_text:
+            try:
+                date.fromisoformat(start_date_text)
+            except ValueError:
+                self._show_status("Start date must be in YYYY-MM-DD format.", error=True)
+                return
+
         self.enter_btn.setEnabled(False)
         self.cancel_btn.setEnabled(False)
         self._show_status("Validating API key with REDCap...", error=False)
 
         self._validation_thread = StudyValidationThread(name, api_key)
-        self._validation_thread.validation_complete.connect(self._on_validation_done)
+        self._validation_thread.validation_complete.connect(
+            lambda ok, sn, ak, err: self._on_validation_done(ok, sn, ak, err, target_text, start_date_text)
+        )
         self._validation_thread.start()
 
-    def _on_validation_done(self, success, study_name, api_key, error_msg):
+    def _on_validation_done(self, success, study_name, api_key, error_msg, target_text, start_date_text):
         self.enter_btn.setEnabled(True)
         self.cancel_btn.setEnabled(True)
 
         if success:
             self.validated_name = study_name
             self.validated_key = api_key
+            self.validated_target = target_text if target_text else None
+            self.validated_start_date = start_date_text if start_date_text else None
             self.accept()
         else:
             self._show_status(error_msg, error=True)
@@ -1966,7 +2060,12 @@ class ClinicalTrialApp(QMainWindow):
         """Open the dialog for adding a new study / API key."""
         dialog = AddStudyDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            self.save_new_study(dialog.validated_name, dialog.validated_key)
+            self.save_new_study(
+                dialog.validated_name,
+                dialog.validated_key,
+                dialog.validated_target,
+                dialog.validated_start_date
+            )
 
     def open_remove_studies_dialog(self):
         """Open the dialog for removing studies."""
@@ -2012,9 +2111,9 @@ class ClinicalTrialApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Remove Error", f"Failed to remove studies: {str(e)}")
 
-    def save_new_study(self, study_name, api_key):
-        """Persist a newly validated study to api_keys.json and user_permissions.json,
-        then refresh the selection list and notify the user."""
+    def save_new_study(self, study_name, api_key, target=None, start_date=None):
+        """Persist a newly validated study to api_keys.json, user_permissions.json,
+        and study_config.json, then refresh the selection list and notify the user."""
         try:
             # --- api_keys.json ---
             self.api_keys[study_name] = api_key
@@ -2031,6 +2130,24 @@ class ClinicalTrialApp(QMainWindow):
             permissions_path = get_config_path('user_permissions.json')
             with open(permissions_path, 'w') as f:
                 json.dump(self.user_data, f, indent=2)
+
+            # --- study_config.json (target enrollment + start date) ---
+            study_config_path = get_config_path('study_config.json')
+            try:
+                with open(study_config_path, 'r') as f:
+                    study_config = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                study_config = {}
+            study_config[study_name] = {
+                'target_subjects': int(target) if target else None,
+                'start_date': start_date if start_date else None
+            }
+            with open(study_config_path, 'w') as f:
+                json.dump(study_config, f, indent=2)
+
+            # Update the live chart widget's recruitment_rates so it takes effect immediately
+            if hasattr(self, 'chart_widget'):
+                self.chart_widget._load_study_config()
 
             # Refresh the studies list so the new study appears immediately
             self.refresh_studies_list()
