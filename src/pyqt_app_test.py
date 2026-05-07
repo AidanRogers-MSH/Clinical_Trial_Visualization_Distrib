@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QTabWidget, QLabel, QLineEdit, 
                             QPushButton, QCheckBox, QScrollArea, QMessageBox,
                             QFrame, QSizePolicy, QSlider, QSpinBox, QSplitter,
-                            QDialog)
+                            QDialog, QToolTip)
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 from PySide6.QtGui import QFont, QCursor
 import numpy as np
@@ -358,7 +358,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                             QHBoxLayout, QTabWidget, QLabel, QLineEdit, 
                             QPushButton, QCheckBox, QScrollArea, QMessageBox,
                             QFrame, QSizePolicy, QSlider, QSpinBox, QSplitter,
-                            QDialog)
+                            QDialog, QToolTip)
 from PySide6.QtCore import Qt, QThread, Signal, QObject
 from PySide6.QtGui import QFont, QCursor
 
@@ -694,7 +694,7 @@ class ChartWidget(QWidget):
         if config["chart_type"] == "single":
             self.create_single_chart_subplot(fig, data, study_name, config)
         elif config["chart_type"] == "sankey_flow":
-            self.create_sankey_flow_subplot(fig, data, study_name)
+            self.create_sankey_flow_subplot(fig, canvas, data, study_name)
         else:
             self.create_dual_chart_subplot(fig, data, study_name)
 
@@ -981,7 +981,7 @@ class ChartWidget(QWidget):
         
         fig.tight_layout()
 
-    def create_sankey_flow_subplot(self, fig, data, study_name):
+    def create_sankey_flow_subplot(self, fig, canvas, data, study_name):
         """Create Sankey diagram and time series for patient flow"""
         # Process data to get flow counts
         flow_data = process_participant_flow_data(data)
@@ -992,7 +992,7 @@ class ChartWidget(QWidget):
         
         # Create time series subplot  
         ax2 = fig.add_subplot(122)
-        self.create_time_series_plot(ax2, flow_data, study_name, data)
+        self.create_time_series_plot(ax2, flow_data, study_name, data, canvas)
         
         fig.tight_layout()
 
@@ -1193,7 +1193,7 @@ class ChartWidget(QWidget):
         branch_down(right_col_x, y5 + eh, y5 + eh/2 + pad)  # Withdrawn On Study
         varrow(far_right_col_x, y4 - bh/2 - pad, y6 + bh/2 + pad)  # Completed
 
-    def create_time_series_plot(self, ax, flow_data, study_name, data):
+    def create_time_series_plot(self, ax, flow_data, study_name, data, canvas=None):
         """Create time series plot showing screen passes by date and current status breakdown"""
         from datetime import timedelta
         import pandas as pd
@@ -1242,8 +1242,10 @@ class ChartWidget(QWidget):
                    markersize=6, linewidth=2, color='#2ca02c')
             
             # Add monthly increment bars
-            ax.bar(monthly_dates, monthly_values, width=20, alpha=0.3, 
+            monthly_bars = ax.bar(monthly_dates, monthly_values, width=20, alpha=0.3, 
                    label=f'Monthly Screen Pass', color='#2ca02c')
+            _hoverable_bars = [(monthly_bars, [f'Month: {d.strftime("%Y-%m")}  Screen Passes: {v}'
+                                               for d, v in zip(monthly_dates, monthly_values)])]
             
             # Add data point labels
             for date, cum_val, monthly_val in zip(monthly_dates, cumulative_values, monthly_values):
@@ -1257,7 +1259,7 @@ class ChartWidget(QWidget):
             ax.xaxis.set_major_locator(mdates.MonthLocator(interval=1))
         
         else:
-            # No valid screen pass dates - show message
+            _hoverable_bars = []
             ax.text(0.5, 0.8, 'No screen pass dates available for time series analysis', 
                    ha='center', va='center', transform=ax.transAxes,
                    bbox=dict(boxstyle="round,pad=0.3", facecolor='lightgray', alpha=0.7))
@@ -1278,7 +1280,7 @@ class ChartWidget(QWidget):
                    label=f'Study Goal: {study_goal}', alpha=0.9)
         
         # Create stacked bars for current status breakdown at current date
-        bar_width = timedelta(days=0.75)
+        bar_width = timedelta(days=20)
         bar_x_position = current_date
         
         # Total dropouts (excludes Screen Fail, Pre-Screen Dropout, Pre-Screen LFU)
@@ -1287,24 +1289,27 @@ class ChartWidget(QWidget):
             flow_data['Dropout_On_Study'] + flow_data['Lost_FU_On_Study'] + flow_data['Withdrawn_On_Study']
         )
 
-        # Both bar groups centered around current_date, touching at the date line
-        half = timedelta(days=0.375)   # half of bar_width
-        active_stack_x = bar_x_position - half   # stacked bar on the left
-        completed_x    = bar_x_position + half   # completed bar on the right
+        # Two groups: dropouts bar on left, completed+active stacked bar on right
+        half = timedelta(days=11)   # half gap between the two bars
+        dropout_x   = bar_x_position - half   # dropouts bar on the left
+        completed_x = bar_x_position + half   # completed/active bar on the right
 
-        # Active On Study stacked on top of Total Dropouts/Lost FU (left bar)
+        # Left bar: total dropouts/lost FU
         if total_dropouts > 0:
-            ax.bar(active_stack_x, total_dropouts, width=bar_width,
-                   alpha=0.7, label=f'Total Dropouts/Lost FU: {total_dropouts}', color='orange')
-        if active_on_study > 0:
-            ax.bar(active_stack_x, active_on_study, width=bar_width,
-                   bottom=total_dropouts, alpha=0.7,
-                   label=f'Active On Study: {active_on_study}', color='blue')
+            b = ax.bar(dropout_x, total_dropouts, width=bar_width,
+                       alpha=0.7, label=f'Total Dropouts/Lost FU: {total_dropouts}', color='orange')
+            _hoverable_bars.append((b, [f'Total Dropouts/Lost FU: {total_dropouts}'] * len(b.patches)))
 
-        # Completed participants (right bar)
+        # Right bar: completed at bottom, active on study stacked on top
         if completed > 0:
-            ax.bar(completed_x, completed, width=bar_width,
-                   alpha=0.7, label=f'Completed: {completed}', color='green')
+            b = ax.bar(completed_x, completed, width=bar_width,
+                       alpha=0.7, label=f'Completed: {completed}', color='green')
+            _hoverable_bars.append((b, [f'Completed: {completed}'] * len(b.patches)))
+        if active_on_study > 0:
+            b = ax.bar(completed_x, active_on_study, width=bar_width,
+                       bottom=completed, alpha=0.7,
+                       label=f'Active On Study: {active_on_study}', color='blue')
+            _hoverable_bars.append((b, [f'Active On Study: {active_on_study}'] * len(b.patches)))
         
         # Format the plot
         ax.set_ylabel('Patient Count')
@@ -1321,6 +1326,20 @@ class ChartWidget(QWidget):
         
         # Adjust layout to prevent label cutoff
         _get_plt().setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+
+        # Wire up hover tooltips on the canvas
+        if canvas is not None and _hoverable_bars:
+            def _on_hover(event, _ax=ax, _bars=_hoverable_bars):
+                if event.inaxes != _ax:
+                    QToolTip.hideText()
+                    return
+                for container, tips in _bars:
+                    for rect, tip in zip(container.patches, tips):
+                        if rect.contains(event)[0]:
+                            QToolTip.showText(QCursor.pos(), tip)
+                            return
+                QToolTip.hideText()
+            canvas.mpl_connect('motion_notify_event', _on_hover)
         
 class StudyValidationThread(QThread):
     """Background thread that validates a REDCap API key by querying for record IDs."""

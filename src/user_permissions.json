@@ -10,7 +10,8 @@
         "Humanity Neurotech",
         "Sana Lyme",
         "Sirolimus (Rapamycin) Clinical Trial",
-        "PACS Cortisol Study"
+        "PACS Cortisol Study",
+        "tafen"
       ]
     },
     "david": {
@@ -59,8 +60,7 @@
     "CRC": {
       "password": "CRC",
       "role": "researcher",
-      "accessible_studies": [
-      ]
+      "accessible_studies": []
     }
   }
 }
