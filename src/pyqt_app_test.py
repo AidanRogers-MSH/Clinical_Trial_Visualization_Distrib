@@ -1266,7 +1266,13 @@ class ChartWidget(QWidget):
         
         # Add current status breakdown as stacked bars (keeping the original logic)
         current_date = pd.to_datetime(flow_data['Date'])
-        study_goal = flow_data['Study_Goal']
+
+        # Use target_subjects from recruitment_rates if available, otherwise fall back to flow_data default
+        rr = self.recruitment_rates.get(study_name, {})
+        target_raw = rr.get('target_subjects', flow_data['Study_Goal'])
+        import math
+        study_goal = flow_data['Study_Goal'] if (target_raw is None or (isinstance(target_raw, float) and math.isnan(target_raw))) else int(target_raw)
+
         completed = flow_data['Completed']
         
         # Calculate remaining active (those on study but not completed/dropped)
