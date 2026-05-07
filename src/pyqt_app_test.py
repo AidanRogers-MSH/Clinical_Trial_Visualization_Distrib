@@ -1415,7 +1415,7 @@ class AddStudyDialog(QDialog):
         layout.addWidget(self.api_key_input)
 
         # Target enrollment row
-        target_label = QLabel("Target enrollment (optional):")
+        target_label = QLabel("Target enrollment:")
         target_label.setFont(bold_font)
         layout.addWidget(target_label)
 
@@ -1424,7 +1424,7 @@ class AddStudyDialog(QDialog):
         layout.addWidget(self.target_input)
 
         # Study start date row
-        start_date_label = QLabel("Study start date (optional, YYYY-MM-DD):")
+        start_date_label = QLabel("Study start date (YYYY-MM-DD):")
         start_date_label.setFont(bold_font)
         layout.addWidget(start_date_label)
 
@@ -1464,22 +1464,22 @@ class AddStudyDialog(QDialog):
         if not api_key:
             self._show_status("Please enter an API key.", error=True)
             return
-
-        # Validate target enrollment if provided
-        if target_text:
-            try:
-                int(target_text)
-            except ValueError:
-                self._show_status("Target enrollment must be a whole number.", error=True)
-                return
-
-        # Validate start date if provided
-        if start_date_text:
-            try:
-                date.fromisoformat(start_date_text)
-            except ValueError:
-                self._show_status("Start date must be in YYYY-MM-DD format.", error=True)
-                return
+        if not target_text:
+            self._show_status("Please enter a target enrollment.", error=True)
+            return
+        try:
+            int(target_text)
+        except ValueError:
+            self._show_status("Target enrollment must be a whole number.", error=True)
+            return
+        if not start_date_text:
+            self._show_status("Please enter a study start date.", error=True)
+            return
+        try:
+            date.fromisoformat(start_date_text)
+        except ValueError:
+            self._show_status("Start date must be in YYYY-MM-DD format.", error=True)
+            return
 
         self.enter_btn.setEnabled(False)
         self.cancel_btn.setEnabled(False)
