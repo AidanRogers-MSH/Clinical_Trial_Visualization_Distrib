@@ -1207,15 +1207,17 @@ class ChartWidget(QWidget):
                 screen_pass_date = record.get('screen_pass_date', '')
                 if screen_pass_date and screen_pass_date.strip():  # Non-empty date
                     try:
-                        # Parse the date (assuming MM-DD-YYYY or MM/DD/YYYY format)
-                        if '-' in screen_pass_date:
-                            date_obj = pd.to_datetime(screen_pass_date, format='%m-%d-%Y')
-                        elif '/' in screen_pass_date:
-                            date_obj = pd.to_datetime(screen_pass_date, format='%m/%d/%Y')
-                        else:
-                            # Try automatic parsing
-                            date_obj = pd.to_datetime(screen_pass_date)
-                        screen_pass_dates.append(date_obj)
+                        # Try known formats in order, then fall back to automatic parsing
+                        parsed = None
+                        for fmt in ('%Y-%m-%d', '%m-%d-%Y', '%m/%d/%Y', '%Y/%m/%d'):
+                            try:
+                                parsed = pd.to_datetime(screen_pass_date, format=fmt)
+                                break
+                            except (ValueError, TypeError):
+                                continue
+                        if parsed is None:
+                            parsed = pd.to_datetime(screen_pass_date)
+                        screen_pass_dates.append(parsed)
                     except (ValueError, TypeError):
                         # Skip invalid dates
                         continue
