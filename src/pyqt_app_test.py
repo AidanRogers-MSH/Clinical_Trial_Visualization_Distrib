@@ -1037,8 +1037,8 @@ class ChartWidget(QWidget):
                 
 
         # Helper: draw a side exclusion box
-        def draw_excl_box(cx, cy, w, h, text, edgecolor='#e67e00'):
-            draw_box(cx, cy, w, h, text, facecolor='#fff0e0', edgecolor=edgecolor)#e67e00
+        def draw_excl_box(cx, cy, w, h, text, edgecolor='orange'):
+            draw_box(cx, cy, w, h, text, facecolor='#fff0e0', edgecolor=edgecolor)
 
         # Helper: vertical arrow
         def varrow(cx, y_from, y_to):
@@ -1102,6 +1102,10 @@ class ChartWidget(QWidget):
 
         Completed_total = fd['Completed']
 
+        # Calculate active (currently in-state) counts
+        active_screen_pending = max(0, screen_pending_total - Dropouts_Pre_Screen_Total - Lost_FU_Pre_Screen_Total)
+        active_on_study = max(0, On_study_total - Dropout_On_Study_Total - Lost_FU_On_Study_Total - Withdrawn_On_Study_Total - Completed_total)
+
 
         # Consented
         consented_text = f"Consented\nN = {consented_total}"
@@ -1110,8 +1114,8 @@ class ChartWidget(QWidget):
         draw_box(center_col_x, y1, bw+2.0, bh, consented_text)
 
         # Screen Pending box
-        screen_pending_label = f"Screen Pending\nN = {screen_pending_total}"
-        draw_box(center_col_x, y2, bw, bh, screen_pending_label, facecolor="#f7f5a0", edgecolor="#f5d862")
+        screen_pending_label = f"Screen Pending\nN = {active_screen_pending}"
+        draw_box(center_col_x, y2, bw, bh, screen_pending_label, facecolor="#f7f5a0", edgecolor="#c9a800")
 
         # Screen Fail box (includes Pre-Screen Dropout and Pre-Screen LFU)
         screen_fail_label = (f"Screen Fail\nN = {screen_fail_total}"
@@ -1140,8 +1144,8 @@ class ChartWidget(QWidget):
         draw_excl_box(right_col_x, y3, ew, eh, f"{pre_on_study_lfu}")
 
         # On Study  Box
-        on_study_box = f"On Study\nN = {On_study_total}"
-        draw_box(far_right_col_x, y4, bw, bh, on_study_box)
+        on_study_box = f"On Study\nN = {active_on_study}"
+        draw_box(far_right_col_x, y4, bw, bh, on_study_box, facecolor='#ddeeff', edgecolor='blue')
 
         # Dropout On Study Box
         dropout_on_study_box = f"Dropout On Study\nN = {Dropout_On_Study_Total}"
@@ -1157,7 +1161,7 @@ class ChartWidget(QWidget):
 
         # Completed Box
         completed_box = f"Completed\nN = {Completed_total}"
-        draw_box(far_right_col_x, y6, bw, bh, completed_box, facecolor='#a5d6a7', edgecolor="#388e3c")
+        draw_box(far_right_col_x, y6, bw, bh, completed_box, facecolor='#90EE90', edgecolor='green')
 
         # --- Draw arrows between boxes ---
         # pad matches boxstyle="round,pad=0.1" so lines/arrows start and end
@@ -1241,16 +1245,28 @@ class ChartWidget(QWidget):
                    label=f'Cumulative Screen Pass: {cumulative_values[-1] if cumulative_values.size > 0 else 0}', 
                    markersize=6, linewidth=2, color='#2ca02c')
             
+            # Extend cumulative line to current date as flat line (no annotation)
+            today_ts = pd.Timestamp(date.today())
+            last_cum = int(cumulative_values[-1]) if cumulative_values.size > 0 else 0
+            if len(monthly_dates) > 0 and monthly_dates[-1] < today_ts:
+                ax.plot([monthly_dates[-1], today_ts], [last_cum, last_cum],
+                        '-', color='#2ca02c', linewidth=2)
+            # Dot at current date with total label
+            ax.plot(today_ts, last_cum, 'o', color='#2ca02c', markersize=8, zorder=5)
+            ax.annotate(f'Total Screen Pass: {last_cum}', (today_ts, last_cum),
+                        textcoords="offset points", xytext=(8, 6),
+                        fontsize=8, fontweight='bold', color='#2ca02c')
+            
             # Add monthly increment bars
             monthly_bars = ax.bar(monthly_dates, monthly_values, width=20, alpha=0.3, 
-                   label=f'Monthly Screen Pass', color='#2ca02c')
+                   label=f'Screen Pass', color='#2ca02c')
             _hoverable_bars = [(monthly_bars, [f'Month: {d.strftime("%Y-%m")}  Screen Passes: {v}'
                                                for d, v in zip(monthly_dates, monthly_values)])]
             
             # Add data point labels
-            for date, cum_val, monthly_val in zip(monthly_dates, cumulative_values, monthly_values):
+            for dt, cum_val, monthly_val in zip(monthly_dates, cumulative_values, monthly_values):
                 if monthly_val > 0:
-                    ax.annotate(f'{monthly_val}', (date, cum_val), 
+                    ax.annotate(f'{monthly_val}', (dt, cum_val), 
                                textcoords="offset points", xytext=(0,10), 
                                ha='center', fontsize=8)
             
@@ -1266,13 +1282,7 @@ class ChartWidget(QWidget):
         
         # Add current status breakdown as stacked bars (keeping the original logic)
         current_date = pd.to_datetime(flow_data['Date'])
-
-        # Use target_subjects from recruitment_rates if available, otherwise fall back to flow_data default
-        rr = self.recruitment_rates.get(study_name, {})
-        target_raw = rr.get('target_subjects', flow_data['Study_Goal'])
-        import math
-        study_goal = flow_data['Study_Goal'] if (target_raw is None or (isinstance(target_raw, float) and math.isnan(target_raw))) else int(target_raw)
-
+        study_goal = flow_data['Study_Goal']
         completed = flow_data['Completed']
         
         # Calculate remaining active (those on study but not completed/dropped)
